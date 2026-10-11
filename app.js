@@ -174,7 +174,9 @@ async function streams(m,vid,title){
     try{const d=await getJSON(`${a.base}/stream/${enc(m.type)}/${enc(vid)}.json`);(d.streams||[]).forEach(s=>list.push({a,s}))}catch(e){}
   }));
   const ok=list.filter(x=>x.s.url||x.s.externalUrl||x.s.ytId);
-  box.innerHTML='<h2 style="margin:16px 0 8px">Sources</h2>'+(ok.length?ok.map((x,i)=>`<div class="box" data-i="${i}"><b>${esc((x.s.name||x.a.manifest.name).replace(/\n/g,' '))}</b><small>${esc((x.s.title||x.s.description||'').replace(/\n/g,' · '))}</small></div>`).join(''):'<p class="mut">Aucune source lisible trouvée.'+(list.length?' (Les sources de type torrent ne sont pas prises en charge.)':'')+'</p>');
+  const is4k=x=>/2160p|\b4k\b|uhd/i.test((x.s.name||'')+' '+(x.s.title||'')+' '+(x.s.description||''));
+  ok.sort((p,q)=>is4k(p)-is4k(q));
+  box.innerHTML='<h2 style="margin:16px 0 8px">Sources</h2>'+(ok.length?ok.map((x,i)=>`<div class="box" data-i="${i}"><b>${is4k(x)?'⚠ 4K · ':''}${esc((x.s.name||x.a.manifest.name).replace(/\n/g,' '))}</b><small>${esc((x.s.title||x.s.description||'').replace(/\n/g,' · '))}</small></div>`).join(''):'<p class="mut">Aucune source lisible trouvée.'+(list.length?' (Les sources de type torrent ne sont pas prises en charge.)':'')+'</p>');
   box.querySelectorAll('[data-i]').forEach(el=>el.onclick=()=>{const x=ok[+el.dataset.i];
     if(x.s.url)play(x.s,m,vid,title);
     else window.open(x.s.externalUrl||('https://www.youtube.com/watch?v='+x.s.ytId),'_blank');});
@@ -193,7 +195,7 @@ function diagStart(){
     if(vid.paused||vid.readyState<2)return;
     n++; if(n<3)return;
     const q=vid.getVideoPlaybackQuality?vid.getVideoPlaybackQuality():{};
-    const aud=vid.webkitAudioDecodedByteCount, hasAud=(aud===undefined)?null:aud>0;
+    const aud=vid.webkitAudioDecodedByteCount!==undefined?vid.webkitAudioDecodedByteCount:(vid.mozHasAudio===undefined?undefined:(vid.mozHasAudio?1:0)), hasAud=(aud===undefined)?null:aud>0;
     let ahead=0;try{const b=vid.buffered;for(let i=0;i<b.length;i++){if(vid.currentTime>=b.start(i)&&vid.currentTime<=b.end(i))ahead=b.end(i)-vid.currentTime}}catch(e){}
     const ext=((vid.currentSrc||'').split('?')[0].match(/\.(\w{2,5})$/)||[,'?'])[1];
     const lines=[`${vid.videoWidth}×${vid.videoHeight} · images perdues ${q.droppedVideoFrames||0}/${q.totalVideoFrames||0}`,`son décodé: ${aud===undefined?'?':aud} octets · tampon: ${ahead.toFixed(1)} s · attentes: ${vid._w||0} · .${ext}${vid._h?' · hls.js':''}`];
