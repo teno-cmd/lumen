@@ -8,7 +8,7 @@ let db;
 try{db=JSON.parse(localStorage.getItem('lumen'))}catch(e){}
 if(!db||!db.profiles){db={cur:'p1',profiles:[{id:'p1',name:'Moi',addons:[],list:[],progress:{}}]}}
 const P=()=>db.profiles.find(p=>p.id===db.cur)||db.profiles[0];
-const save=()=>{try{localStorage.setItem('lumen',JSON.stringify(db))}catch(e){}};
+const save=(noSync)=>{try{localStorage.setItem('lumen',JSON.stringify(db))}catch(e){} if(!noSync){db.dirty=true;schedulePush()}};
 
 /* ---------- addons (protocole Stremio) ---------- */
 const norm=u=>u.trim().replace(/^stremio:\/\//,'https://').replace(/\/manifest\.json.*$/,'').replace(/\/+$/,'');
@@ -36,6 +36,71 @@ function supports(a,res,type,id){
 }
 const enc=encodeURIComponent;
 const catUrl=(a,c,extra)=>`${a.base}/catalog/${enc(c.type)}/${enc(c.id)}${extra?'/'+extra:''}.json`;
+
+
+/* ---------- comptes + synchro (Supabase) ---------- */
+const SB={url:'https://fthkdkmlmykdrfzpwaod.supabase.co',key:'sb_publishable_caYDvzp__LeRK9NHojka6w_HruWKBoC'};
+let auth=null; try{auth=JSON.parse(localStorage.getItem('lumen_auth'))}catch(e){}
+let syncMsg='';
+const saveAuth=()=>{try{auth?localStorage.setItem('lumen_auth',JSON.stringify(auth)):localStorage.removeItem('lumen_auth')}catch(e){}};
+async function sb(path,opts={},tok){
+  const h=Object.assign({apikey:SB.key,'Content-Type':'application/json'},opts.headers||{});
+  if(tok)h.Authorization='Bearer '+tok;
+  const r=await fetch(SB.url+path,Object.assign({},opts,{headers:h}));
+  const t=await r.text(); let j=null; try{j=t?JSON.parse(t):null}catch(e){}
+  if(!r.ok)throw new Error((j&&(j.msg||j.error_description||j.message||j.error))||('Erreur '+r.status));
+  return j;
+}
+function setAuth(j){auth={access_token:j.access_token,refresh_token:j.refresh_token,expires_at:Math.floor(Date.now()/1000)+(j.expires_in||3600),email:(j.user||{}).email,id:(j.user||{}).id};saveAuth()}
+async function token(){
+  if(!auth)return null;
+  if(auth.expires_at-60<Date.now()/1000){
+    try{const j=await sb('/auth/v1/token?grant_type=refresh_token',{method:'POST',body:JSON.stringify({refresh_token:auth.refresh_token})});setAuth(j)}
+    catch(e){auth=null;saveAuth();return null}
+  }
+  return auth.access_token;
+}
+async function signIn(email,pw,create){
+  const j=await sb(create?'/auth/v1/signup':'/auth/v1/token?grant_type=password',{method:'POST',body:JSON.stringify({email,password:pw})});
+  if(!j.access_token)throw new Error('Compte créé : confirme ton e-mail puis connecte-toi.');
+  setAuth(j); await syncPull();
+}
+const payload=()=>({v:1,cur:db.cur,profiles:db.profiles.map(p=>({id:p.id,name:p.name,addons:p.addons.map(a=>a.base),list:p.list,progress:p.progress}))});
+async function hydrate(bases,old){
+  return Promise.all(bases.map(async b=>{
+    const k=(old||[]).find(a=>a.base===b); if(k&&k.manifest&&k.manifest.resources&&k.manifest.resources.length)return k;
+    try{return{base:b,manifest:await getJSON(b+'/manifest.json')}}catch(e){return k||{base:b,manifest:{id:b,name:b,resources:[],catalogs:[]}}}
+  }));
+}
+let pushT=null;
+function schedulePush(){ if(!auth)return; clearTimeout(pushT); pushT=setTimeout(syncPush,1500) }
+async function syncPush(){
+  const t=await token(); if(!t)return;
+  try{
+    await sb('/rest/v1/lumen_data?on_conflict=user_id',{method:'POST',headers:{Prefer:'resolution=merge-duplicates,return=minimal'},body:JSON.stringify({user_id:auth.id,data:payload(),updated_at:new Date().toISOString()})},t);
+    db.dirty=false;db.syncedAt=Date.now();save(true);syncMsg='Synchronisé à '+new Date().toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+  }catch(e){syncMsg='Échec de synchro : '+e.message}
+  const m=document.getElementById('sm'); if(m)m.textContent=syncMsg;
+}
+async function syncPull(){
+  const t=await token(); if(!t)return;
+  try{
+    const rows=await sb('/rest/v1/lumen_data?select=data,updated_at&user_id=eq.'+auth.id,{},t);
+    if(!rows||!rows.length||!rows[0].data||!rows[0].data.profiles){await syncPush();return}
+    const cloud=rows[0].data, ct=Date.parse(rows[0].updated_at)||0;
+    if(db.dirty&&ct<=(db.syncedAt||0)){await syncPush();return}
+    const merged=[];
+    for(const cp of cloud.profiles){
+      const lp=db.profiles.find(p=>p.id===cp.id);
+      const progress=Object.assign({},lp?lp.progress:{},cp.progress||{});
+      for(const k in (lp?lp.progress:{})){ if(cp.progress&&cp.progress[k]&&lp.progress[k].at>cp.progress[k].at)progress[k]=lp.progress[k] }
+      merged.push({id:cp.id,name:cp.name,list:cp.list||[],progress,addons:await hydrate(cp.addons||[],lp&&lp.addons)});
+    }
+    db.profiles=merged.length?merged:db.profiles;
+    db.cur=db.profiles.some(p=>p.id===db.cur)?db.cur:(cloud.cur&&db.profiles.some(p=>p.id===cloud.cur)?cloud.cur:db.profiles[0].id);
+    db.dirty=false;db.syncedAt=Date.now();save(true);syncMsg='Synchronisé';
+  }catch(e){syncMsg='Échec de synchro : '+e.message}
+}
 
 /* ---------- UI helpers ---------- */
 function card(m,land){
@@ -153,13 +218,25 @@ function addonsPage(){
 }
 function profilesPage(){
   setNav('profiles');
-  app.innerHTML=`<div class="pad"><h2 style="margin:0 0 10px">Profils</h2>${db.profiles.map(p=>`<div class="box" style="display:flex;align-items:center;gap:10px"><b style="flex:1">${esc(p.name)}${p.id===db.cur?' ✓':''}</b>${p.id===db.cur?'':`<button class="btn g" data-u="${p.id}">Choisir</button>`}${db.profiles.length>1?`<button class="btn g" data-d="${p.id}">✕</button>`:''}</div>`).join('')}
+  app.innerHTML=`<div class="pad"><h2 style="margin:0 0 8px">Compte</h2>
+  ${auth?`<div class="box"><b>Connecté</b><small>${esc(auth.email||'')}</small><small id="sm">${esc(syncMsg)}</small><div style="display:flex;gap:8px;margin-top:10px"><button class="btn g" id="sy">Synchroniser</button><button class="btn g" id="lo">Déconnexion</button></div></div>`:
+  `<div class="box"><small style="margin:0 0 8px">Connecte-toi pour retrouver tes addons, ta liste et ta progression sur tous tes appareils.</small>
+  <input class="f" id="ae" type="email" placeholder="E-mail" autocapitalize="off" autocorrect="off"><input class="f" id="ap" type="password" placeholder="Mot de passe (6 caractères min.)">
+  <div style="display:flex;gap:8px"><button class="btn" id="ali">Connexion</button><button class="btn g" id="acr">Créer un compte</button></div><small id="am2" style="margin-top:8px"></small></div>`}
+  <h2 style="margin:20px 0 10px">Profils</h2>${db.profiles.map(p=>`<div class="box" style="display:flex;align-items:center;gap:10px"><b style="flex:1">${esc(p.name)}${p.id===db.cur?' ✓':''}</b>${p.id===db.cur?'':`<button class="btn g" data-u="${p.id}">Choisir</button>`}${db.profiles.length>1?`<button class="btn g" data-d="${p.id}">✕</button>`:''}</div>`).join('')}
   <input class="f" id="pn" placeholder="Nouveau profil (prénom)"><button class="btn" id="pa">Créer</button>
   <h2 style="margin:24px 0 8px">Sauvegarde / migration</h2>
   <p class="mut" style="font-size:13px;margin:0 0 8px">Copie le texte ci-dessous pour déplacer ce profil vers un autre appareil, ou colle ici celui d’un autre Lumen puis appuie sur Importer.</p>
   <textarea class="f" id="ex" rows="4" autocapitalize="off" autocorrect="off" spellcheck="false">${esc(JSON.stringify({lumen:1,name:P().name,addons:P().addons.map(a=>a.base),list:P().list,progress:P().progress}))}</textarea>
   <button class="btn g" id="imp">Importer</button> <span id="im" class="mut"></span>
   <p class="mut" style="margin-top:20px;font-size:13px">Les profils (addons, liste, progression) sont enregistrés sur cet appareil. Chaque ami a sa propre installation.</p></div>`;
+
+  if($('#sy'))$('#sy').onclick=async()=>{$('#sm').textContent='Synchro…';await syncPull();await syncPush();profilesPage()};
+  if($('#lo'))$('#lo').onclick=()=>{auth=null;saveAuth();syncMsg='';profilesPage()};
+  const doAuth=async create=>{const e=$('#ae').value.trim(),p=$('#ap').value;if(!e||!p){$('#am2').textContent='Entre ton e-mail et ton mot de passe.';return}
+    $('#am2').textContent='Un instant…';try{await signIn(e,p,create);profilesPage()}catch(x){$('#am2').textContent=x.message}};
+  if($('#ali'))$('#ali').onclick=()=>doAuth(false);
+  if($('#acr'))$('#acr').onclick=()=>doAuth(true);
   $('#imp').onclick=async()=>{let d;try{d=JSON.parse($('#ex').value);if(!d.lumen)throw 0}catch(e){$('#im').textContent='Texte invalide.';return}
     const p=P();$('#im').textContent='Import…';
     for(const u of d.addons||[]){if(!p.addons.some(a=>a.base===u)){try{await addAddon(u)}catch(e){}}}
@@ -184,4 +261,5 @@ function route(){
 addEventListener('hashchange',route);
 $('#q').addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.value.trim()){location.hash='#/s/'+enc(e.target.value.trim());e.target.blur()}});
 route();
+if(auth)syncPull().then(()=>{if(!document.getElementById('pl')||document.getElementById('pl').style.display!=='block')route()});
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
