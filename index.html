@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Lumen</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0d0d14">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Lumen">
+<link rel="apple-touch-icon" href="icon-180.png">
+<style>
+:root{--bg:#0d0d14;--card:#1a1a26;--tx:#f2f2f7;--mut:#8b8ba0;--ac:#8b7bff}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:var(--bg);color:var(--tx);font:16px -apple-system,system-ui,sans-serif;padding-bottom:calc(70px + env(safe-area-inset-bottom))}
+header{position:sticky;top:0;z-index:5;background:rgba(13,13,20,.92);backdrop-filter:blur(12px);padding:calc(10px + env(safe-area-inset-top)) 16px 10px;display:flex;gap:10px;align-items:center}
+header h1{font-size:20px;margin:0;color:var(--ac)}
+header input{flex:1;background:var(--card);border:0;border-radius:10px;padding:10px 12px;color:var(--tx);font-size:16px}
+nav{position:fixed;bottom:0;left:0;right:0;display:flex;background:rgba(13,13,20,.96);border-top:1px solid #22222f;padding-bottom:env(safe-area-inset-bottom);z-index:5}
+nav a{flex:1;text-align:center;padding:12px 0;color:var(--mut);text-decoration:none;font-size:13px}
+nav a.on{color:var(--ac)}
+h2{font-size:17px;margin:20px 16px 8px}
+.row{display:flex;gap:10px;overflow-x:auto;padding:0 16px;scrollbar-width:none}
+.row::-webkit-scrollbar{display:none}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:12px;padding:0 16px}
+.c{flex:0 0 112px;text-decoration:none;color:var(--tx);font-size:12px}
+.grid .c{flex:none}
+.c .p{aspect-ratio:2/3;border-radius:10px;background:var(--card) center/cover;display:flex;align-items:center;justify-content:center;color:var(--mut);padding:6px;text-align:center}
+.c.land .p{aspect-ratio:16/10;background-size:contain;background-repeat:no-repeat}
+.c span{display:block;margin-top:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pad{padding:16px}
+.btn{background:var(--ac);color:#fff;border:0;border-radius:10px;padding:11px 16px;font-size:15px;font-weight:600}
+.btn.g{background:var(--card);color:var(--tx)}
+.box{background:var(--card);border-radius:12px;padding:12px;margin-bottom:10px}
+.box small{color:var(--mut);display:block;margin-top:3px;word-break:break-all}
+.hero{height:230px;background:var(--card) center/cover;position:relative}
+.hero:after{content:"";position:absolute;inset:0;background:linear-gradient(transparent 30%,var(--bg))}
+.back{position:fixed;top:calc(64px + env(safe-area-inset-top));left:12px;z-index:6;background:rgba(0,0,0,.55);color:#fff;border:0;border-radius:50%;width:38px;height:38px;font-size:18px}
+.ep{display:flex;gap:10px;padding:10px 0;border-bottom:1px solid #22222f;align-items:center}
+.ep b{color:var(--mut);width:30px}
+.sel{display:flex;gap:8px;overflow-x:auto;margin-bottom:8px}
+.sel button{flex:none;background:var(--card);color:var(--tx);border:0;border-radius:20px;padding:7px 14px}
+.sel button.on{background:var(--ac)}
+input.f{width:100%;background:var(--card);border:0;border-radius:10px;padding:12px;color:var(--tx);font-size:16px;margin-bottom:8px}
+#pl{position:fixed;inset:0;background:#000;z-index:20;display:none}
+#pl video{width:100%;height:100%}
+#pl .x{position:absolute;top:calc(10px + env(safe-area-inset-top));left:12px;background:rgba(0,0,0,.6);color:#fff;border:0;border-radius:50%;width:40px;height:40px;font-size:18px;z-index:2}
+.mut{color:var(--mut)}
+</style>
+</head>
+<body>
+<header><h1>Lumen</h1><input id="q" type="search" placeholder="Rechercher…" enterkeyhint="search"></header>
+<main id="app"></main>
+<nav><a href="#/" data-n="home">Accueil</a><a href="#/list" data-n="list">Ma liste</a><a href="#/addons" data-n="addons">Addons</a><a href="#/profiles" data-n="profiles">Profil</a></nav>
+<div id="pl"><button class="x" id="plx">✕</button><video id="vid" controls playsinline autoplay></video></div>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
