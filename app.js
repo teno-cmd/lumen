@@ -180,6 +180,31 @@ async function streams(m,vid,title){
     else window.open(x.s.externalUrl||('https://www.youtube.com/watch?v='+x.s.ytId),'_blank');});
 }
 
+
+/* diagnostic de lecture */
+let diagT=null;
+function diagStart(){
+  clearInterval(diagT);
+  let box=document.getElementById('pinfo');
+  if(!box){box=document.createElement('div');box.id='pinfo';box.style.cssText='position:absolute;left:12px;right:12px;bottom:70px;z-index:3;background:rgba(0,0,0,.72);color:#fff;border-radius:10px;padding:10px 12px;font:13px/1.4 system-ui;display:none;pointer-events:none';document.getElementById('pl').appendChild(box)}
+  let n=0;
+  diagT=setInterval(()=>{
+    if($('#pl').style.display!=='block'){clearInterval(diagT);return}
+    if(vid.paused||vid.readyState<2)return;
+    n++; if(n<5)return;
+    const q=vid.getVideoPlaybackQuality?vid.getVideoPlaybackQuality():{};
+    const aud=vid.webkitAudioDecodedByteCount, hasAud=(aud===undefined)?null:aud>0;
+    const lines=[`${vid.videoWidth}×${vid.videoHeight} · images perdues ${q.droppedVideoFrames||0}/${q.totalVideoFrames||0}`];
+    if(hasAud===false&&!vid.muted&&vid.volume>0)lines.push('Aucun son décodé : la piste audio (AC3, E-AC3, DTS…) n’est probablement pas lisible par ce navigateur.');
+    if(q.totalVideoFrames>60&&q.droppedVideoFrames/q.totalVideoFrames>0.15)lines.push('Beaucoup d’images perdues : le format vidéo (HEVC/H.265, 10 bits, 4K) est trop lourd pour ce navigateur.');
+    if(vid.videoWidth===0)lines.push('Aucune image décodée : codec vidéo non pris en charge.');
+    box.innerHTML=lines.map(esc).join('<br>');
+    box.style.display=(lines.length>1)?'block':'none';
+    if(n>12&&lines.length===1)box.style.display='none';
+  },1000);
+}
+
+
 /* ---------- lecteur ---------- */
 const vid=$('#vid'); let pkey=null, last=0;
 function play(s,m,id,title){
@@ -191,6 +216,7 @@ function play(s,m,id,title){
   if(/\.m3u8(\?|$)/i.test(s.url)&&!vid.canPlayType('application/vnd.apple.mpegurl')&&window.Hls){
     const h=new Hls({maxBufferLength:60,maxMaxBufferLength:120,backBufferLength:30,enableWorker:true});h.loadSource(s.url);h.attachMedia(vid);vid.onloadedmetadata=()=>{if(start>20)vid.currentTime=start};vid.play().catch(()=>{});vid._h=h;
   } else go();
+  diagStart();
   vid.dataset.meta=JSON.stringify({type:m.type,id:m.id,name:title||m.name,poster:m.poster});
 }
 vid.ontimeupdate=()=>{
