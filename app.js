@@ -118,13 +118,13 @@ async function streams(m,vid,title){
 /* ---------- lecteur ---------- */
 const vid=$('#vid'); let pkey=null, last=0;
 function play(s,m,id,title){
-  const p=P(); pkey=m.type+'/'+id; $('#pl').style.display='block';
+  const p=P(); pkey=m.type+'/'+id; $('#pl').style.display='block'; document.body.classList.add('playing');
   vid.querySelectorAll('track').forEach(t=>t.remove());
   (s.subtitles||[]).forEach((t,i)=>{if(!t.url)return;const e=document.createElement('track');e.kind='subtitles';e.src=t.url;e.label=t.lang||('Sous-titres '+(i+1));vid.appendChild(e)});
   const start=(p.progress[pkey]||{}).t||0;
   const go=()=>{vid.src=s.url;vid.onloadedmetadata=()=>{if(start>20&&start<vid.duration*0.95)vid.currentTime=start};vid.play().catch(()=>{})};
   if(/\.m3u8(\?|$)/i.test(s.url)&&!vid.canPlayType('application/vnd.apple.mpegurl')&&window.Hls){
-    const h=new Hls();h.loadSource(s.url);h.attachMedia(vid);vid.onloadedmetadata=()=>{if(start>20)vid.currentTime=start};vid.play().catch(()=>{});vid._h=h;
+    const h=new Hls({maxBufferLength:60,maxMaxBufferLength:120,backBufferLength:30,enableWorker:true});h.loadSource(s.url);h.attachMedia(vid);vid.onloadedmetadata=()=>{if(start>20)vid.currentTime=start};vid.play().catch(()=>{});vid._h=h;
   } else go();
   vid.dataset.meta=JSON.stringify({type:m.type,id:m.id,name:title||m.name,poster:m.poster});
 }
@@ -132,7 +132,8 @@ vid.ontimeupdate=()=>{
   if(!pkey||Date.now()-last<4000||!isFinite(vid.duration))return; last=Date.now();
   const meta=JSON.parse(vid.dataset.meta||'null'); P().progress[pkey]={t:vid.currentTime,d:vid.duration,at:Date.now(),meta}; save();
 };
-$('#plx').onclick=()=>{vid.pause();if(vid._h){vid._h.destroy();vid._h=null}vid.removeAttribute('src');vid.load();$('#pl').style.display='none';pkey=null};
+$('#plf').onclick=()=>{try{if(vid.webkitEnterFullscreen)vid.webkitEnterFullscreen();else if(vid.requestFullscreen)vid.requestFullscreen()}catch(e){}};
+$('#plx').onclick=()=>{document.body.classList.remove('playing');vid.pause();if(vid._h){vid._h.destroy();vid._h=null}vid.removeAttribute('src');vid.load();$('#pl').style.display='none';pkey=null};
 
 /* ---------- pages ---------- */
 function myList(){
@@ -142,18 +143,29 @@ function myList(){
 function addonsPage(){
   setNav('addons'); const p=P();
   app.innerHTML=`<div class="pad"><h2 style="margin:0 0 10px">Addons de ${esc(p.name)}</h2>
-  <input class="f" id="au" placeholder="URL de l’addon (…/manifest.json ou stremio://…)" autocapitalize="off" autocorrect="off">
+  <textarea class="f" id="au" rows="3" placeholder="URL(s) d’addon, une par ligne (…/manifest.json ou stremio://…)" autocapitalize="off" autocorrect="off"></textarea>
   <button class="btn" id="aa">Ajouter</button> <span id="am" class="mut"></span><div style="margin-top:16px">
   ${p.addons.map((a,i)=>`<div class="box"><b>${esc(a.manifest.name)}</b> <span class="mut">v${esc(a.manifest.version||'')}</span><small>${esc(a.manifest.description||'')}</small><small>${esc(a.base)}</small><button class="btn g" style="margin-top:8px" data-r="${i}">Retirer</button></div>`).join('')||'<p class="mut">Aucun addon.</p>'}</div></div>`;
-  $('#aa').onclick=async()=>{const u=$('#au').value;if(!u)return;$('#am').textContent='Ajout…';
-    try{await addAddon(u);addonsPage()}catch(e){$('#am').textContent='Impossible : URL invalide, addon injoignable ou bloqué (CORS / http).'}};
+  $('#aa').onclick=async()=>{const us=$('#au').value.split(/\s+/).filter(Boolean);if(!us.length)return;
+    let ok=0,ko=[];for(let i=0;i<us.length;i++){$('#am').textContent='Ajout '+(i+1)+'/'+us.length+'…';try{await addAddon(us[i]);ok++}catch(e){ko.push(us[i])}}
+    addonsPage(); if(ko.length)$('#am').textContent=ok+' ajouté(s). Échec : '+ko.join(' , ')+' (URL invalide, injoignable, http ou CORS)'; else $('#am').textContent=ok+' ajouté(s)'};
   app.querySelectorAll('[data-r]').forEach(b=>b.onclick=()=>{p.addons.splice(+b.dataset.r,1);save();addonsPage()});
 }
 function profilesPage(){
   setNav('profiles');
   app.innerHTML=`<div class="pad"><h2 style="margin:0 0 10px">Profils</h2>${db.profiles.map(p=>`<div class="box" style="display:flex;align-items:center;gap:10px"><b style="flex:1">${esc(p.name)}${p.id===db.cur?' ✓':''}</b>${p.id===db.cur?'':`<button class="btn g" data-u="${p.id}">Choisir</button>`}${db.profiles.length>1?`<button class="btn g" data-d="${p.id}">✕</button>`:''}</div>`).join('')}
   <input class="f" id="pn" placeholder="Nouveau profil (prénom)"><button class="btn" id="pa">Créer</button>
+  <h2 style="margin:24px 0 8px">Sauvegarde / migration</h2>
+  <p class="mut" style="font-size:13px;margin:0 0 8px">Copie le texte ci-dessous pour déplacer ce profil vers un autre appareil, ou colle ici celui d’un autre Lumen puis appuie sur Importer.</p>
+  <textarea class="f" id="ex" rows="4" autocapitalize="off" autocorrect="off" spellcheck="false">${esc(JSON.stringify({lumen:1,name:P().name,addons:P().addons.map(a=>a.base),list:P().list,progress:P().progress}))}</textarea>
+  <button class="btn g" id="imp">Importer</button> <span id="im" class="mut"></span>
   <p class="mut" style="margin-top:20px;font-size:13px">Les profils (addons, liste, progression) sont enregistrés sur cet appareil. Chaque ami a sa propre installation.</p></div>`;
+  $('#imp').onclick=async()=>{let d;try{d=JSON.parse($('#ex').value);if(!d.lumen)throw 0}catch(e){$('#im').textContent='Texte invalide.';return}
+    const p=P();$('#im').textContent='Import…';
+    for(const u of d.addons||[]){if(!p.addons.some(a=>a.base===u)){try{await addAddon(u)}catch(e){}}}
+    for(const m of d.list||[]){if(!p.list.some(x=>x.id===m.id&&x.type===m.type))p.list.push(m)}
+    for(const [k,v] of Object.entries(d.progress||{})){if(!p.progress[k]||p.progress[k].at<v.at)p.progress[k]=v}
+    save();profilesPage()};
   $('#pa').onclick=()=>{const n=$('#pn').value.trim();if(!n)return;const id='p'+Date.now();db.profiles.push({id,name:n,addons:[],list:[],progress:{}});db.cur=id;save();profilesPage()};
   app.querySelectorAll('[data-u]').forEach(b=>b.onclick=()=>{db.cur=b.dataset.u;save();profilesPage()});
   app.querySelectorAll('[data-d]').forEach(b=>b.onclick=()=>{if(!confirm('Supprimer ce profil ?'))return;db.profiles=db.profiles.filter(p=>p.id!==b.dataset.d);if(db.cur===b.dataset.d)db.cur=db.profiles[0].id;save();profilesPage()});
