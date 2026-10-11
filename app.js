@@ -191,16 +191,18 @@ function diagStart(){
   diagT=setInterval(()=>{
     if($('#pl').style.display!=='block'){clearInterval(diagT);return}
     if(vid.paused||vid.readyState<2)return;
-    n++; if(n<5)return;
+    n++; if(n<3)return;
     const q=vid.getVideoPlaybackQuality?vid.getVideoPlaybackQuality():{};
     const aud=vid.webkitAudioDecodedByteCount, hasAud=(aud===undefined)?null:aud>0;
-    const lines=[`${vid.videoWidth}×${vid.videoHeight} · images perdues ${q.droppedVideoFrames||0}/${q.totalVideoFrames||0}`];
+    let ahead=0;try{const b=vid.buffered;for(let i=0;i<b.length;i++){if(vid.currentTime>=b.start(i)&&vid.currentTime<=b.end(i))ahead=b.end(i)-vid.currentTime}}catch(e){}
+    const ext=((vid.currentSrc||'').split('?')[0].match(/\.(\w{2,5})$/)||[,'?'])[1];
+    const lines=[`${vid.videoWidth}×${vid.videoHeight} · images perdues ${q.droppedVideoFrames||0}/${q.totalVideoFrames||0}`,`son décodé: ${aud===undefined?'?':aud} octets · tampon: ${ahead.toFixed(1)} s · attentes: ${vid._w||0} · .${ext}${vid._h?' · hls.js':''}`];
     if(hasAud===false&&!vid.muted&&vid.volume>0)lines.push('Aucun son décodé : la piste audio (AC3, E-AC3, DTS…) n’est probablement pas lisible par ce navigateur.');
     if(q.totalVideoFrames>60&&q.droppedVideoFrames/q.totalVideoFrames>0.15)lines.push('Beaucoup d’images perdues : le format vidéo (HEVC/H.265, 10 bits, 4K) est trop lourd pour ce navigateur.');
     if(vid.videoWidth===0)lines.push('Aucune image décodée : codec vidéo non pris en charge.');
     box.innerHTML=lines.map(esc).join('<br>');
-    box.style.display=(lines.length>1)?'block':'none';
-    if(n>12&&lines.length===1)box.style.display='none';
+    box.style.display='block';
+    if(n>25)box.style.display='none';
   },1000);
 }
 
@@ -216,6 +218,7 @@ function play(s,m,id,title){
   if(/\.m3u8(\?|$)/i.test(s.url)&&!vid.canPlayType('application/vnd.apple.mpegurl')&&window.Hls){
     const h=new Hls({maxBufferLength:60,maxMaxBufferLength:120,backBufferLength:30,enableWorker:true});h.loadSource(s.url);h.attachMedia(vid);vid.onloadedmetadata=()=>{if(start>20)vid.currentTime=start};vid.play().catch(()=>{});vid._h=h;
   } else go();
+  vid._w=0;vid.onwaiting=()=>{vid._w=(vid._w||0)+1};
   diagStart();
   vid.dataset.meta=JSON.stringify({type:m.type,id:m.id,name:title||m.name,poster:m.poster});
 }
