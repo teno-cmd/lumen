@@ -176,10 +176,13 @@ async function streams(m,vid,title){
   const ok=list.filter(x=>x.s.url||x.s.externalUrl||x.s.ytId);
   const is4k=x=>/2160p|\b4k\b|uhd/i.test((x.s.name||'')+' '+(x.s.title||'')+' '+(x.s.description||''));
   ok.sort((p,q)=>is4k(p)-is4k(q));
-  box.innerHTML='<h2 style="margin:16px 0 8px">Sources</h2>'+(ok.length?ok.map((x,i)=>`<div class="box" data-i="${i}"><b>${is4k(x)?'⚠ 4K · ':''}${esc((x.s.name||x.a.manifest.name).replace(/\n/g,' '))}</b><small>${esc((x.s.title||x.s.description||'').replace(/\n/g,' · '))}</small></div>`).join(''):'<p class="mut">Aucune source lisible trouvée.'+(list.length?' (Les sources de type torrent ne sont pas prises en charge.)':'')+'</p>');
+  box.innerHTML='<h2 style="margin:16px 0 8px">Sources</h2>'+(ok.length?ok.map((x,i)=>`<div class="box" data-i="${i}"><b>${is4k(x)?'⚠ 4K · ':''}${esc((x.s.name||x.a.manifest.name).replace(/\n/g,' '))}</b><small>${esc((x.s.title||x.s.description||'').replace(/\n/g,' · '))}</small>${x.s.url?`<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn g" data-c="${i}">Copier le lien</button>${/iPhone|iPad|Android/i.test(navigator.userAgent)?`<a class="btn g" style="text-decoration:none" data-v="${i}" href="${/Android/i.test(navigator.userAgent)?'vlc://'+esc(x.s.url):'vlc-x-callback://x-callback-url/stream?url='+encodeURIComponent(x.s.url)}">Ouvrir dans VLC</a>`:''}</div>`:''}</div>`).join(''):'<p class="mut">Aucune source lisible trouvée.'+(list.length?' (Les sources de type torrent ne sont pas prises en charge.)':'')+'</p>');
   box.querySelectorAll('[data-i]').forEach(el=>el.onclick=()=>{const x=ok[+el.dataset.i];
     if(x.s.url)play(x.s,m,vid,title);
     else window.open(x.s.externalUrl||('https://www.youtube.com/watch?v='+x.s.ytId),'_blank');});
+  box.querySelectorAll('[data-c]').forEach(bt=>bt.addEventListener('click',e=>{e.stopPropagation();const u=ok[+bt.dataset.c].s.url;
+    (navigator.clipboard?navigator.clipboard.writeText(u):Promise.reject()).then(()=>{bt.textContent='Lien copié ✓'}).catch(()=>{bt.textContent='Copie impossible'})}));
+  box.querySelectorAll('[data-v]').forEach(an=>an.addEventListener('click',e=>e.stopPropagation()));
 }
 
 
