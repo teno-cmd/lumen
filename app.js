@@ -103,72 +103,89 @@ async function syncPull(){
 }
 
 /* ---------- UI helpers ---------- */
+const ICON={
+ chev:'<svg class="chev" width="8" height="14" viewBox="0 0 8 14" aria-hidden="true"><path d="M1 1l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+ play:'<svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15a1 1 0 0 0 1.5.9l12-7.5a1 1 0 0 0 0-1.8l-12-7.5A1 1 0 0 0 7 4.5z" fill="currentColor"/></svg>',
+ back:'<svg width="12" height="20" viewBox="0 0 8 14" aria-hidden="true"><path d="M7 1L1 7l6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+ plus:'<svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v16M4 12h16" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>',
+ check:'<svg width="15" height="15" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 12.5l5 5 10-11" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+};
+const TITLES={home:'Accueil',list:'Ma liste',addons:'Addons',profiles:'Profil'};
 function card(m,land){
   const bg=m.poster?`style="background-image:url('${esc(m.poster)}')"`:'';
   return `<a class="c ${land?'land':''}" href="#/d/${enc(m.type)}/${enc(m.id)}"><div class="p" ${bg}>${m.poster?'':esc(m.name)}</div><span>${esc(m.name)}</span></a>`;
 }
 const stash={}; // meta mis en cache pour la fiche
 function remember(ms){ms.forEach(m=>{stash[m.type+'/'+m.id]=m})}
-const setNav=n=>document.querySelectorAll('nav a').forEach(a=>a.classList.toggle('on',a.dataset.n===n));
-const loading=()=>app.innerHTML='<p class="pad mut">Chargement…</p>';
+function setNav(n,title){
+  document.body.dataset.view=n||'detail';
+  document.querySelectorAll('nav a').forEach(a=>{const on=a.dataset.n===n;a.classList.toggle('on',on);on?a.setAttribute('aria-current','page'):a.removeAttribute('aria-current')});
+  $('#ttl').textContent=title||TITLES[n]||'';
+}
+let VIEW=0;
+function enter(){VIEW++;app.classList.remove('in');void app.offsetWidth;app.classList.add('in');window.scrollTo(0,0)}
+const loading=()=>{app.innerHTML='<div class="empty"><div class="spin"></div></div>'};
+const skRow=()=>`<div class="row">${'<div class="c sk"><div class="p"></div></div>'.repeat(6)}</div>`;
 
 /* ---------- vues ---------- */
 async function home(){
-  setNav('home'); app.innerHTML=''; await ensureDefaults();
-  const p=P(); if(!p.addons.length){app.innerHTML='<p class="pad mut">Aucun addon. Va dans l’onglet Addons.</p>';return}
+  setNav('home'); enter(); const v=VIEW; app.innerHTML=''; await ensureDefaults(); if(v!==VIEW)return;
+  const p=P(); if(!p.addons.length){app.innerHTML='<div class="empty"><p>Aucun addon installé.</p><a class="btn" href="#/addons">Ajouter un addon</a></div>';return}
   const cont=Object.entries(p.progress).filter(([k,v])=>v.t>20&&v.t<v.d*0.95&&v.meta).sort((a,b)=>b[1].at-a[1].at).slice(0,10);
-  if(cont.length){remember(cont.map(c=>c[1].meta));app.insertAdjacentHTML('beforeend',`<h2>Reprendre</h2><div class="row">${cont.map(c=>card(c[1].meta)).join('')}</div>`)}
+  if(cont.length){remember(cont.map(c=>c[1].meta));app.insertAdjacentHTML('beforeend',`<section><h2>Reprendre</h2><div class="row">${cont.map(c=>card(c[1].meta)).join('')}</div></section>`)}
   for(const a of p.addons){
     if(!(a.manifest.resources||[]).some(r=>(r.name||r)==='catalog'))continue;
     for(const c of (a.manifest.catalogs||[])){
       if((c.extra||[]).some(e=>e.isRequired))continue;
-      const sec=document.createElement('section');sec.innerHTML=`<h2>${esc(c.name||c.id)} <span class="mut" style="font-size:12px">· ${esc(a.manifest.name)}</span></h2><div class="row"><span class="mut">…</span></div>`;
-      app.appendChild(sec);
+      const sec=document.createElement('section');sec.innerHTML=`<h2>${esc(c.name||c.id)}<small>${esc(a.manifest.name)}</small></h2>${skRow()}`;
+      if(v!==VIEW)return; app.appendChild(sec);
       getJSON(catUrl(a,c)).then(d=>{const ms=(d.metas||[]).slice(0,30);remember(ms);
         const land=c.type==='tv';
-        sec.querySelector('.row').innerHTML=ms.map(m=>card(m,land)).join('')||'<span class="mut">Vide</span>'}).catch(()=>sec.remove());
+        sec.querySelector('.row').innerHTML=ms.map(m=>card(m,land)).join('')||'<span class="mut" style="padding:0 4px">Vide</span>'}).catch(()=>sec.remove());
     }
   }
 }
 async function search(q){
-  setNav('home'); loading(); const p=P(); let html='';
+  setNav('home','Recherche'); enter(); loading(); const p=P(); let html='';
   const jobs=[];
   for(const a of p.addons)for(const c of a.manifest.catalogs||[]){
     if((c.extra||[]).some(e=>e.name==='search'))jobs.push(getJSON(catUrl(a,c,'search='+enc(q))).then(d=>({a,c,ms:d.metas||[]})).catch(()=>null));
   }
   const res=(await Promise.all(jobs)).filter(r=>r&&r.ms.length);
-  for(const r of res){remember(r.ms);html+=`<h2>${esc(r.c.name||r.c.id)} <span class="mut" style="font-size:12px">· ${esc(r.a.manifest.name)}</span></h2><div class="grid">${r.ms.slice(0,30).map(m=>card(m)).join('')}</div>`}
-  app.innerHTML=`<h2>Résultats pour « ${esc(q)} »</h2>`+(html||'<p class="pad mut">Aucun résultat.</p>');
+  for(const r of res){remember(r.ms);html+=`<section><h2>${esc(r.c.name||r.c.id)}<small>${esc(r.a.manifest.name)}</small></h2><div class="grid">${r.ms.slice(0,30).map(m=>card(m)).join('')}</div></section>`}
+  app.innerHTML=`<p class="sub">Résultats pour « ${esc(q)} »</p>`+(html||'<div class="empty"><p>Aucun résultat.</p></div>');
 }
 async function detail(type,id){
-  setNav(''); loading(); const p=P(); let m=stash[type+'/'+id];
+  setNav(null); enter(); loading(); const p=P(); let m=stash[type+'/'+id];
   for(const a of p.addons){
     if(!supports(a,'meta',type,id))continue;
     try{const d=await getJSON(`${a.base}/meta/${enc(type)}/${enc(id)}.json`);if(d.meta){m=Object.assign({},m,d.meta);break}}catch(e){}
   }
-  if(!m){app.innerHTML='<p class="pad">Fiche introuvable.</p>';return}
+  if(!m){app.innerHTML='<div class="empty"><p>Fiche introuvable.</p></div>';return}
   m.type=m.type||type; m.id=m.id||id; stash[type+'/'+id]=m;
-  const inList=p.list.some(x=>x.id===id&&x.type===type);
+  const inList=()=>p.list.some(x=>x.id===id&&x.type===type);
   const vids=(m.videos||[]).filter(v=>v.season!=null||v.episode!=null);
   const seasons=[...new Set(vids.map(v=>v.season??0))].sort((a,b)=>a-b);
-  let html=`<button class="back" onclick="history.back()">‹</button><div class="hero" style="background-image:url('${esc(m.background||m.poster||'')}')"></div><div class="pad" style="margin-top:-50px;position:relative">
-  <h1 style="margin:0 0 4px">${esc(m.name)}</h1><div class="mut">${esc([m.year||m.releaseInfo,m.runtime,(m.genres||[]).slice(0,3).join(', ')].filter(Boolean).join(' · '))}</div>
-  <p style="line-height:1.45">${esc(m.description||'')}</p>
-  <div style="display:flex;gap:8px;margin-bottom:12px">${vids.length?'':`<button class="btn" id="watch">▶ Regarder</button>`}<button class="btn g" id="fav">${inList?'✓ Dans ma liste':'+ Ma liste'}</button></div><div id="eps"></div><div id="streams"></div></div>`;
-  app.innerHTML=html; window.scrollTo(0,0);
+  const meta=[m.year||m.releaseInfo,m.runtime,(m.genres||[]).slice(0,3).join(' · ')].filter(Boolean).join('  ·  ');
+  const favHtml=()=>inList()?`${ICON.check} Dans ma liste`:`${ICON.plus} Ma liste`;
+  app.innerHTML=`<button class="back" aria-label="Retour" onclick="history.back()">${ICON.back}</button>
+  <div class="hero" style="background-image:url('${esc(m.background||m.poster||'')}')"></div>
+  <div class="dbody"><h1>${esc(m.name)}</h1><div class="meta">${esc(meta)}</div>
+  <div class="acts">${vids.length?'':`<button class="btn" id="watch">${ICON.play} Lire</button>`}<button class="btn g" id="fav">${favHtml()}</button></div>
+  <p class="desc">${esc(m.description||'')}</p><div id="eps"></div><div id="streams"></div></div>`;
   $('#fav').onclick=()=>{const i=p.list.findIndex(x=>x.id===id&&x.type===type);
-    if(i>=0)p.list.splice(i,1);else p.list.push({type,id,name:m.name,poster:m.poster});save();$('#fav').textContent=i>=0?'+ Ma liste':'✓ Dans ma liste'};
+    if(i>=0)p.list.splice(i,1);else p.list.push({type,id,name:m.name,poster:m.poster});save();$('#fav').innerHTML=favHtml()};
   if(vids.length){
     let cur=seasons.find(s=>s>0)??seasons[0];
-    const draw=()=>{$('#eps').innerHTML=`<div class="sel">${seasons.map(s=>`<button class="${s===cur?'on':''}" data-s="${s}">${s===0?'Spéciaux':'Saison '+s}</button>`).join('')}</div>`+
-      vids.filter(v=>(v.season??0)===cur).sort((a,b)=>(a.episode||0)-(b.episode||0)).map(v=>`<div class="ep" data-v="${esc(v.id)}" data-t="${esc(v.title||v.name||'')}"><b>${v.episode??''}</b><span>${esc(v.title||v.name||'Épisode '+v.episode)}</span></div>`).join('');
+    const draw=()=>{$('#eps').innerHTML=(seasons.length>1?`<div class="seg">${seasons.map(s=>`<button class="${s===cur?'on':''}" data-s="${s}">${s===0?'Spéciaux':'Saison '+s}</button>`).join('')}</div>`:'')+
+      `<div class="group">`+vids.filter(v=>(v.season??0)===cur).sort((a,b)=>(a.episode||0)-(b.episode||0)).map(v=>`<button class="item ep" data-v="${esc(v.id)}" data-t="${esc(v.title||v.name||'')}"><b>${v.episode??''}</b><span>${esc(v.title||v.name||'Épisode '+v.episode)}</span>${ICON.chev}</button>`).join('')+`</div>`;
       $('#eps').querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>{cur=+b.dataset.s;draw()});
       $('#eps').querySelectorAll('[data-v]').forEach(b=>b.onclick=()=>streams(m,b.dataset.v,m.name+' · '+b.dataset.t));};
     draw();
   } else $('#watch').onclick=()=>streams(m,id,m.name);
 }
 async function streams(m,vid,title){
-  const box=$('#streams'); box.innerHTML='<h2 style="margin:16px 0 8px">Sources</h2><p class="mut">Recherche…</p>'; box.scrollIntoView({behavior:'smooth'});
+  const box=$('#streams'); box.innerHTML='<h3>Sources</h3><div class="group"><div class="item"><div class="spin sm"></div><span class="mut">Recherche des sources…</span></div></div>'; box.scrollIntoView({behavior:'smooth',block:'start'});
   const p=P(); const list=[];
   await Promise.all(p.addons.filter(a=>supports(a,'stream',m.type,vid)).map(async a=>{
     try{const d=await getJSON(`${a.base}/stream/${enc(m.type)}/${enc(vid)}.json`);(d.streams||[]).forEach(s=>list.push({a,s}))}catch(e){}
@@ -176,7 +193,8 @@ async function streams(m,vid,title){
   const ok=list.filter(x=>x.s.url||x.s.externalUrl||x.s.ytId);
   const is4k=x=>/2160p|\b4k\b|uhd/i.test((x.s.name||'')+' '+(x.s.title||'')+' '+(x.s.description||''));
   ok.sort((p,q)=>is4k(p)-is4k(q));
-  box.innerHTML='<h2 style="margin:16px 0 8px">Sources</h2>'+(ok.length?ok.map((x,i)=>`<div class="box" data-i="${i}"><b>${is4k(x)?'⚠ 4K · ':''}${esc((x.s.name||x.a.manifest.name).replace(/\n/g,' '))}</b><small>${esc((x.s.title||x.s.description||'').replace(/\n/g,' · '))}</small>${x.s.url?`<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn g" data-c="${i}">Copier le lien</button>${/iPhone|iPad|Android/i.test(navigator.userAgent)?`<a class="btn g" style="text-decoration:none" data-v="${i}" href="${/Android/i.test(navigator.userAgent)?'vlc://'+esc(x.s.url):'vlc-x-callback://x-callback-url/stream?url='+encodeURIComponent(x.s.url)}">Ouvrir dans VLC</a>`:''}</div>`:''}</div>`).join(''):'<p class="mut">Aucune source lisible trouvée.'+(list.length?' (Les sources de type torrent ne sont pas prises en charge.)':'')+'</p>');
+  const mobile=/iPhone|iPad|Android/i.test(navigator.userAgent), android=/Android/i.test(navigator.userAgent);
+  box.innerHTML='<h3>Sources</h3>'+(ok.length?`<div class="group">${ok.map((x,i)=>`<div class="item src" data-i="${i}" role="button" tabindex="0"><div class="grow"><b>${is4k(x)?'<span class="tag">4K</span>':''}${esc((x.s.name||x.a.manifest.name).replace(/\n/g,' '))}</b><small>${esc((x.s.title||x.s.description||'').replace(/\n/g,' · '))}</small>${x.s.url?`<div class="chips"><button class="chip" data-c="${i}">Copier le lien</button>${mobile?`<a class="chip" data-v="${i}" href="${android?'vlc://'+esc(x.s.url):'vlc-x-callback://x-callback-url/stream?url='+encodeURIComponent(x.s.url)}">Ouvrir dans VLC</a>`:''}</div>`:''}</div>${ICON.chev}</div>`).join('')}</div>`:'<div class="group"><div class="item"><span class="mut">Aucune source lisible trouvée.'+(list.length?' Les sources de type torrent ne sont pas prises en charge.':'')+'</span></div></div>');
   box.querySelectorAll('[data-i]').forEach(el=>el.onclick=()=>{const x=ok[+el.dataset.i];
     if(x.s.url)play(x.s,m,vid,title);
     else window.open(x.s.externalUrl||('https://www.youtube.com/watch?v='+x.s.ytId),'_blank');});
@@ -184,7 +202,6 @@ async function streams(m,vid,title){
     (navigator.clipboard?navigator.clipboard.writeText(u):Promise.reject()).then(()=>{bt.textContent='Lien copié ✓'}).catch(()=>{bt.textContent='Copie impossible'})}));
   box.querySelectorAll('[data-v]').forEach(an=>an.addEventListener('click',e=>e.stopPropagation()));
 }
-
 
 /* diagnostic de lecture */
 let diagT=null;
@@ -211,7 +228,6 @@ function diagStart(){
   },1000);
 }
 
-
 /* ---------- lecteur ---------- */
 const vid=$('#vid'); let pkey=null, last=0;
 function play(s,m,id,title){
@@ -236,35 +252,34 @@ $('#plx').onclick=()=>{document.body.classList.remove('playing');vid.pause();if(
 
 /* ---------- pages ---------- */
 function myList(){
-  setNav('list'); const l=P().list; remember(l);
-  app.innerHTML='<h2>Ma liste</h2>'+(l.length?`<div class="grid">${l.map(m=>card(m)).join('')}</div>`:'<p class="pad mut">Ajoute des titres avec le bouton « + Ma liste ».</p>');
+  setNav('list'); enter(); const l=P().list; remember(l);
+  app.innerHTML=l.length?`<div class="grid pt">${l.map(m=>card(m)).join('')}</div>`:'<div class="empty"><p>Ta liste est vide.</p><small>Ajoute des titres avec le bouton « Ma liste » sur une fiche.</small></div>';
 }
 function addonsPage(){
-  setNav('addons'); const p=P();
-  app.innerHTML=`<div class="pad"><h2 style="margin:0 0 10px">Addons de ${esc(p.name)}</h2>
-  <textarea class="f" id="au" rows="3" placeholder="URL(s) d’addon, une par ligne (…/manifest.json ou stremio://…)" autocapitalize="off" autocorrect="off"></textarea>
-  <button class="btn" id="aa">Ajouter</button> <span id="am" class="mut"></span><div style="margin-top:16px">
-  ${p.addons.map((a,i)=>`<div class="box"><b>${esc(a.manifest.name)}</b> <span class="mut">v${esc(a.manifest.version||'')}</span><small>${esc(a.manifest.description||'')}</small><small>${esc(a.base)}</small><button class="btn g" style="margin-top:8px" data-r="${i}">Retirer</button></div>`).join('')||'<p class="mut">Aucun addon.</p>'}</div></div>`;
+  setNav('addons'); enter(); const p=P();
+  app.innerHTML=`<p class="sub">Profil : ${esc(p.name)}</p>
+  <h3>Ajouter</h3><div class="group pad"><textarea class="f" id="au" rows="3" placeholder="URL(s) d’addon, une par ligne" autocapitalize="off" autocorrect="off" spellcheck="false"></textarea>
+  <button class="btn full" id="aa">Ajouter</button><p class="note" id="am">Accepte les liens …/manifest.json ou stremio://</p></div>
+  <h3>Installés</h3><div class="group">${p.addons.map((a,i)=>`<div class="item"><div class="grow"><b>${esc(a.manifest.name)} <span class="mut">${esc(a.manifest.version||'')}</span></b><small>${esc(a.manifest.description||'')}</small><small class="url">${esc(a.base)}</small></div><button class="chip danger" data-r="${i}">Retirer</button></div>`).join('')||'<div class="item"><span class="mut">Aucun addon.</span></div>'}</div>`;
   $('#aa').onclick=async()=>{const us=$('#au').value.split(/\s+/).filter(Boolean);if(!us.length)return;
     let ok=0,ko=[];for(let i=0;i<us.length;i++){$('#am').textContent='Ajout '+(i+1)+'/'+us.length+'…';try{await addAddon(us[i]);ok++}catch(e){ko.push(us[i])}}
     addonsPage(); if(ko.length)$('#am').textContent=ok+' ajouté(s). Échec : '+ko.join(' , ')+' (URL invalide, injoignable, http ou CORS)'; else $('#am').textContent=ok+' ajouté(s)'};
   app.querySelectorAll('[data-r]').forEach(b=>b.onclick=()=>{p.addons.splice(+b.dataset.r,1);save();addonsPage()});
 }
 function profilesPage(){
-  setNav('profiles');
-  app.innerHTML=`<div class="pad"><h2 style="margin:0 0 8px">Compte</h2>
-  ${auth?`<div class="box"><b>Connecté</b><small>${esc(auth.email||'')}</small><small id="sm">${esc(syncMsg)}</small><div style="display:flex;gap:8px;margin-top:10px"><button class="btn g" id="sy">Synchroniser</button><button class="btn g" id="lo">Déconnexion</button></div></div>`:
-  `<div class="box"><small style="margin:0 0 8px">Connecte-toi pour retrouver tes addons, ta liste et ta progression sur tous tes appareils.</small>
-  <input class="f" id="ae" type="email" placeholder="E-mail" autocapitalize="off" autocorrect="off"><input class="f" id="ap" type="password" placeholder="Mot de passe (6 caractères min.)">
-  <div style="display:flex;gap:8px"><button class="btn" id="ali">Connexion</button><button class="btn g" id="acr">Créer un compte</button></div><small id="am2" style="margin-top:8px"></small></div>`}
-  <h2 style="margin:20px 0 10px">Profils</h2>${db.profiles.map(p=>`<div class="box" style="display:flex;align-items:center;gap:10px"><b style="flex:1">${esc(p.name)}${p.id===db.cur?' ✓':''}</b>${p.id===db.cur?'':`<button class="btn g" data-u="${p.id}">Choisir</button>`}${db.profiles.length>1?`<button class="btn g" data-d="${p.id}">✕</button>`:''}</div>`).join('')}
-  <input class="f" id="pn" placeholder="Nouveau profil (prénom)"><button class="btn" id="pa">Créer</button>
-  <h2 style="margin:24px 0 8px">Sauvegarde / migration</h2>
-  <p class="mut" style="font-size:13px;margin:0 0 8px">Copie le texte ci-dessous pour déplacer ce profil vers un autre appareil, ou colle ici celui d’un autre Lumen puis appuie sur Importer.</p>
-  <textarea class="f" id="ex" rows="4" autocapitalize="off" autocorrect="off" spellcheck="false">${esc(JSON.stringify({lumen:1,name:P().name,addons:P().addons.map(a=>a.base),list:P().list,progress:P().progress}))}</textarea>
-  <button class="btn g" id="imp">Importer</button> <span id="im" class="mut"></span>
-  <p class="mut" style="margin-top:20px;font-size:13px">Les profils (addons, liste, progression) sont enregistrés sur cet appareil. Chaque ami a sa propre installation.</p></div>`;
-
+  setNav('profiles'); enter();
+  const acct=auth?`<div class="group"><div class="item"><div class="grow"><b>Connecté</b><small>${esc(auth.email||'')}</small><small id="sm">${esc(syncMsg)}</small></div></div>
+    <div class="item btns"><button class="btn g" id="sy">Synchroniser</button><button class="btn g danger" id="lo">Déconnexion</button></div></div>`:
+  `<div class="group pad"><p class="note" style="margin:0 0 10px">Connecte-toi pour retrouver tes addons, ta liste et ta progression sur tous tes appareils.</p>
+    <input class="f" id="ae" type="email" placeholder="E-mail" autocapitalize="off" autocorrect="off" autocomplete="email"><input class="f" id="ap" type="password" placeholder="Mot de passe (6 caractères min.)" autocomplete="current-password">
+    <div class="btns"><button class="btn" id="ali">Connexion</button><button class="btn g" id="acr">Inscription</button></div><p class="note" id="am2"></p></div>`;
+  app.innerHTML=`<h3>Compte</h3>${acct}
+  <h3>Profils</h3><div class="group">${db.profiles.map(p=>`<div class="item"><b class="grow">${esc(p.name)}${p.id===db.cur?' <span class="mut">✓</span>':''}</b>${p.id===db.cur?'':`<button class="chip" data-u="${p.id}">Choisir</button>`}${db.profiles.length>1?`<button class="chip danger" data-d="${p.id}">Supprimer</button>`:''}</div>`).join('')}
+    <div class="item btns"><input class="f inl" id="pn" placeholder="Nouveau profil (prénom)"><button class="btn" id="pa">Créer</button></div></div>
+  <h3>Sauvegarde / migration</h3><div class="group pad"><p class="note" style="margin:0 0 8px">Copie ce texte pour déplacer ce profil vers un autre appareil, ou colle ici celui d’un autre Lumen puis appuie sur Importer.</p>
+    <textarea class="f" id="ex" rows="4" autocapitalize="off" autocorrect="off" spellcheck="false">${esc(JSON.stringify({lumen:1,name:P().name,addons:P().addons.map(a=>a.base),list:P().list,progress:P().progress}))}</textarea>
+    <button class="btn g" id="imp">Importer</button><p class="note" id="im"></p></div>
+  <p class="note foot">Les profils sont enregistrés sur cet appareil${auth?' et synchronisés avec ton compte':''}.</p>`;
   if($('#sy'))$('#sy').onclick=async()=>{$('#sm').textContent='Synchro…';await syncPull();await syncPush();profilesPage()};
   if($('#lo'))$('#lo').onclick=()=>{auth=null;saveAuth();syncMsg='';profilesPage()};
   const doAuth=async create=>{const e=$('#ae').value.trim(),p=$('#ap').value;if(!e||!p){$('#am2').textContent='Entre ton e-mail et ton mot de passe.';return}
@@ -279,7 +294,7 @@ function profilesPage(){
     save();profilesPage()};
   $('#pa').onclick=()=>{const n=$('#pn').value.trim();if(!n)return;const id='p'+Date.now();db.profiles.push({id,name:n,addons:[],list:[],progress:{}});db.cur=id;save();profilesPage()};
   app.querySelectorAll('[data-u]').forEach(b=>b.onclick=()=>{db.cur=b.dataset.u;save();profilesPage()});
-  app.querySelectorAll('[data-d]').forEach(b=>b.onclick=()=>{if(!confirm('Supprimer ce profil ?'))return;db.profiles=db.profiles.filter(p=>p.id!==b.dataset.d);if(db.cur===b.dataset.d)db.cur=db.profiles[0].id;save();profilesPage()});
+  app.querySelectorAll('[data-d]').forEach(b=>b.onclick=()=>{if(b.dataset.armed!=='1'){b.dataset.armed='1';b.textContent='Confirmer';return}db.profiles=db.profiles.filter(p=>p.id!==b.dataset.d);if(db.cur===b.dataset.d)db.cur=db.profiles[0].id;save();profilesPage()});
 }
 
 /* ---------- routeur ---------- */
